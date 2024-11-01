@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-black text-white m-0 overflow-x-hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #app {
+    @apply min-h-screen;
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:text-purple-400;
+  }
+
+  .btn-primary {
+    @apply px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 
+           rounded-lg font-medium text-white
+           transition-all duration-300 hover:-translate-y-1 
+           hover:shadow-lg hover:shadow-purple-500/25;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 border border-purple-500 rounded-lg 
+           font-medium text-white
+           transition-all duration-300 hover:-translate-y-1 
+           hover:bg-purple-500/20;
+  }
+
+  .card {
+    @apply bg-black/30 backdrop-blur-lg rounded-lg border border-purple-500/20;
+  }
+}
