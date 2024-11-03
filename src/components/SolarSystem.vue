@@ -200,6 +200,113 @@ onMounted(() => {
     }
   `;
 
+  const plasmaVertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
+
+  const plasmaFragmentShader = `
+    uniform float time;
+    varying vec2 vUv;
+    
+    vec2 hash2(vec2 p) {
+      p = vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)));
+      return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+    }
+    
+    float noise(vec2 p) {
+      const float K1 = 0.366025404;
+      const float K2 = 0.211324865;
+      
+      vec2 i = floor(p + (p.x + p.y) * K1);
+      vec2 a = p - i + (i.x + i.y) * K2;
+      vec2 o = (a.x > a.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+      vec2 b = a - o + K2;
+      vec2 c = a - 1.0 + 2.0 * K2;
+      
+      vec3 h = max(0.5 - vec3(dot(a,a), dot(b,b), dot(c,c)), 0.0);
+      vec3 n = h * h * h * h * vec3(dot(a,hash2(i)), dot(b,hash2(i+o)), dot(c,hash2(i+1.0)));
+      
+      return dot(n, vec3(70.0));
+    }
+    
+    float fbm(vec2 p) {
+      float value = 0.0;
+      float amplitude = 0.7;
+      float frequency = 1.0;
+      for(int i = 0; i < 6; i++) {
+        value += amplitude * noise(p * frequency + time * 0.7);
+        frequency *= 2.4;
+        amplitude *= 0.6;
+      }
+      return value;
+    }
+    
+    float createHotSpot(vec2 uv, float time, float scale) {
+      float spot1 = fbm(uv * 6.0 * scale + time * 0.3);
+      float spot2 = fbm(uv * 4.0 * scale - time * 0.2);
+      
+      float combinedSpot = pow(spot1 * spot2, 0.5);
+      return smoothstep(0.3, 0.7, combinedSpot);
+    }
+    
+    float createMultipleHotSpots(vec2 uv, float time) {
+      float spots1 = createHotSpot(uv, time * 0.4, 0.3);
+      float spots2 = createHotSpot(uv + 0.5, time * 0.2, 0.5);
+      float spots3 = createHotSpot(uv - 0.3, time * 0.3, 0.4);
+      float spots4 = createHotSpot(uv * 1.5, time * 0.35, 0.6);
+      
+      return max(max(spots1, spots2 * 0.9), max(spots3 * 0.8, spots4 * 0.7));
+    }
+    
+    void main() {
+      vec2 uv = vUv;
+      
+      float n1 = fbm(uv * 4.0 + time * 0.15);
+      float n2 = fbm(uv * 8.0 - time * 0.1);
+      float n3 = fbm(uv * 12.0 + time * 0.12);
+      
+      float finalNoise = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * 2.0;
+      finalNoise = pow(finalNoise * 0.5 + 0.5, 1.4);
+      
+      vec3 color1 = vec3(0.7, 0.15, 0.01);
+      vec3 color2 = vec3(0.9, 0.4, 0.05);
+      vec3 color3 = vec3(0.8, 0.3, 0.02);
+      vec3 color4 = vec3(1.0, 0.7, 0.2);
+      vec3 color5 = vec3(1.0, 0.85, 0.3);
+      
+      vec3 finalColor = mix(color1, color2, finalNoise);
+      finalColor = mix(finalColor, color3, fbm(uv * 6.0 + time * 0.15));
+      
+      float allHotSpots = createMultipleHotSpots(uv, time);
+      
+      float timeVariation = sin(time * 1.0) * 0.5 + 0.5;
+      allHotSpots *= mix(0.7, 1.3, timeVariation);
+      
+      finalColor = mix(finalColor, color4, allHotSpots);
+      
+      float brightCenters = pow(allHotSpots, 1.5) * (sin(time * 1.5) * 0.3 + 0.7);
+      finalColor = mix(finalColor, color5, brightCenters);
+      
+      float flicker = fbm(uv * 20.0 + time * 0.7) * allHotSpots;
+      finalColor += color5 * flicker * 0.2;
+      
+      float edge = smoothstep(0.5, 0.35, length(uv - 0.5));
+      finalColor *= edge * 0.7 + 0.3;
+      
+      float pulse = sin(time * 1.0) * 0.05 + 0.95;
+      finalColor *= pulse;
+      
+      float brightness = fbm(uv * 2.0 + time * 0.05) * 0.15 + 0.85;
+      finalColor *= brightness;
+      
+      gl_FragColor = vec4(finalColor, 1.0);
+    }
+  `;
+
   // Solar flare configuration
   const FLARE_CONFIG = {
     ERUPTION_INTERVAL: 10,
@@ -325,14 +432,20 @@ onMounted(() => {
       return new THREE.CanvasTexture(canvas);
     };
 
-    // Core of the sun with texture
+    // Core of the sun with plasma effect
     const geometry = new THREE.CircleGeometry(size, 128);
-    const material = new THREE.MeshBasicMaterial({
-      map: createSunTexture(),
+    const plasmaMaterial = new THREE.ShaderMaterial({
+      vertexShader: plasmaVertexShader,
+      fragmentShader: plasmaFragmentShader,
+      uniforms: {
+        time: { value: 0 }
+      },
       transparent: true,
-      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: true,
     });
-    const body = new THREE.Mesh(geometry, material);
+    const body = new THREE.Mesh(geometry, plasmaMaterial);
 
     // Create glow layers with shader material
     const createGlowLayer = (scale: number, color: THREE.Color, intensity: number) => {
@@ -353,11 +466,11 @@ onMounted(() => {
 
     // Add multiple glow layers with different sizes and intensities
     const glowLayers = [
-      { scale: 1.2, color: new THREE.Color(0xffff33), intensity: 1.0 },
-      { scale: 1.6, color: new THREE.Color(0xffff66), intensity: 0.8 },
-      { scale: 2.0, color: new THREE.Color(0xffff99), intensity: 0.6 },
-      { scale: 2.5, color: new THREE.Color(0xffffcc), intensity: 0.4 },
-      { scale: 3.0, color: new THREE.Color(0xffffee), intensity: 0.2 }
+      { scale: 1.2, color: new THREE.Color(0xff3300), intensity: 0.8 },  // Orange-red
+      { scale: 1.6, color: new THREE.Color(0xff4400), intensity: 0.6 },  // Lighter orange
+      { scale: 2.0, color: new THREE.Color(0xff5500), intensity: 0.4 },  // Even lighter
+      { scale: 2.5, color: new THREE.Color(0xff6600), intensity: 0.2 },  // Faint outer glow
+      { scale: 3.0, color: new THREE.Color(0xff7700), intensity: 0.1 }   // Very faint edge
     ].map(({ scale, color, intensity }) => 
       createGlowLayer(scale, color, intensity)
     );
@@ -528,9 +641,9 @@ onMounted(() => {
   const sunRadius = sizes.sunSize / 2;
   const sun = createCelestialBody(
     sunRadius,
-    0xffff00,
+    0xff3300,
     { x: sizes.width / 2 + sunRadius * 0.3, y: 0 }
-  );
+  ) as THREE.Mesh;
   sun.renderOrder = 1;
 
   // Create planets with labels
@@ -565,45 +678,14 @@ onMounted(() => {
 
   // Animation
   const animate = () => {
-    animationFrameId = requestAnimationFrame(animate);
-    const time = Date.now() * 0.0001;
-    const sunX = sizes.width / 2 + sunRadius * 0.3;
-    const baseOrbitSize = Math.min(sizes.width, sizes.height) * 0.18;
-
-    // Update each planet group's position
-    planetGroups.forEach((group, index) => {
-      const planet = PLANETS[index];
-      const orbitA = baseOrbitSize * planet.orbitSize;
-      const orbitB = baseOrbitSize * (planet.orbitSize * 0.7);
-
-      const planetTime = time * planet.orbitSpeed;
-      const x = sunX - (Math.cos(planetTime) * orbitA);
-      const y = Math.sin(planetTime) * orbitB;
-      const scale = 1 - (Math.cos(planetTime) * 0.3);
-
-      // Update position and opacity
-      group.position.x = x;
-      group.position.y = y + (Math.sin(planetTime) * planet.orbitTilt * baseOrbitSize);
-      group.scale.set(scale, scale, 1);
-
-      // Handle visibility behind sun
-      if (x > sunX - sunRadius) {
-        group.renderOrder = 0;
-        group.children.forEach(child => {
-          if (child instanceof THREE.Mesh && child.material) {
-            child.material.opacity = 0.3;
-          }
-        });
-      } else {
-        group.renderOrder = 2;
-        group.children.forEach(child => {
-          if (child instanceof THREE.Mesh && child.material) {
-            child.material.opacity = 0.95;
-          }
-        });
-      }
-    });
-
+    requestAnimationFrame(animate);
+    const time = performance.now() * 0.001;
+    
+    // Update plasma effect
+    if (sun?.material instanceof THREE.ShaderMaterial) {
+      sun.material.uniforms.time.value = time * 0.5; // Slowed down for better effect
+    }
+    
     renderer.render(scene, camera);
   };
 
@@ -685,6 +767,117 @@ onMounted(() => {
 function addFlareGlow() {
     throw new Error('Function not implemented.');
 }
+
+const createSolarFlares = () => {
+  const flareGeometry = new THREE.BufferGeometry();
+  const flareCount = 50;
+  const positions = new Float32Array(flareCount * 3);
+  const velocities = new Float32Array(flareCount * 3);
+  
+  for(let i = 0; i < flareCount; i++) {
+    const angle = (Math.random() * Math.PI * 2);
+    const radius = 1 * 1.1;
+    positions[i * 3] = Math.cos(angle) * radius;
+    positions[i * 3 + 1] = Math.sin(angle) * radius;
+    positions[i * 3 + 2] = 0;
+    
+    velocities[i * 3] = (Math.random() - 0.5) * 0.02;
+    velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.02;
+    velocities[i * 3 + 2] = 0;
+  }
+  
+  flareGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  
+  const flareMaterial = new THREE.PointsMaterial({
+    color: 0xff3300,
+    size: 2,
+    blending: THREE.AdditiveBlending,
+    transparent: true
+  });
+  
+  const flareSystem = new THREE.Points(flareGeometry, flareMaterial);
+  scene.add(flareSystem);
+  return { flareSystem, positions, velocities };
+};
+
+const createCorona = () => {
+  const coronaGeometry = new THREE.RingGeometry(
+    1.2 * 100, // Assuming sunRadius is 100, replace with the actual value or variable if defined
+    2 * 100,   // Assuming sunRadius is 100, replace with the actual value or variable if defined
+    64
+  );
+  const coronaMaterial = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float time;
+      varying vec2 vUv;
+      
+      void main() {
+        float intensity = 1.0 - (vUv.y * 2.0);
+        intensity *= 0.7;
+        
+        vec3 color = vec3(1.0, 0.6, 0.1) * intensity;
+        gl_FragColor = vec4(color, intensity * 0.5);
+      }
+    `,
+    uniforms: {
+      time: { value: 0 }
+    },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide
+  });
+  
+  const corona = new THREE.Mesh(coronaGeometry, coronaMaterial);
+  scene.add(corona);
+  return corona;
+};
+
+const createMagneticFields = () => {
+  const curves = [];
+  const fieldCount = 12;
+  
+  for(let i = 0; i < fieldCount; i++) {
+    const points = [];
+    const startAngle = (i / fieldCount) * Math.PI * 2;
+    const endAngle = ((i + 0.5) / fieldCount) * Math.PI * 2;
+    
+    for(let t = 0; t <= 1; t += 0.1) {
+      const angle = startAngle * (1 - t) + endAngle * t;
+      const radius = 1 * (1 + Math.sin(t * Math.PI) * 0.3);
+      points.push(new THREE.Vector3(
+        Math.cos(angle) * radius,
+        Math.sin(angle) * radius,
+        0
+      ));
+    }
+    
+    const curve = new THREE.CatmullRomCurve3(points);
+    curves.push(curve);
+  }
+  
+  const fieldMaterial = new THREE.LineBasicMaterial({
+    color: 0xff6600,
+    transparent: true,
+    opacity: 0.3
+  });
+  
+  const fields = curves.map(curve => {
+    const geometry = new THREE.BufferGeometry().setFromPoints(
+      curve.getPoints(50)
+    );
+    return new THREE.Line(geometry, fieldMaterial);
+  });
+  
+  fields.forEach(field => scene.add(field));
+  return fields;
+};
 </script>
 
 <style scoped>
