@@ -262,48 +262,101 @@ onMounted(() => {
       return max(max(spots1, spots2 * 0.9), max(spots3 * 0.8, spots4 * 0.7));
     }
     
+    // New function for dark orange plasma pattern
+    float darkOrangePlasma(vec2 uv, float time) {
+        float scale1 = 4.0;
+        float scale2 = 8.0;
+        
+        vec2 p1 = uv * scale1 + vec2(time * 0.1, time * 0.2);
+        vec2 p2 = uv * scale2 + vec2(-time * 0.15, time * 0.1);
+        
+        float pattern1 = fbm(p1 + fbm(p1 + time * 0.05));
+        float pattern2 = fbm(p2 - fbm(p2 - time * 0.07));
+        
+        return mix(pattern1, pattern2, 0.5);
+    }
+    
+    // New function for white-orange plasma pattern
+    float whiteOrangePlasma(vec2 uv, float time) {
+        float scale1 = 6.0;
+        float scale2 = 10.0;
+        
+        vec2 p1 = uv * scale1 + vec2(time * 0.2, -time * 0.15);
+        vec2 p2 = uv * scale2 + vec2(time * 0.1, time * 0.25);
+        
+        float pattern1 = fbm(p1 * 1.5 + time * 0.1);
+        float pattern2 = fbm(p2 * 0.8 - time * 0.15);
+        
+        return (pattern1 * 0.6 + pattern2 * 0.4) * 1.2;
+    }
+    
+    // Add this new function for the sunspot pattern
+    float createSunspotPattern(vec2 uv, float time) {
+        float scale1 = 3.0;
+        float scale2 = 5.0;
+        
+        vec2 p1 = uv * scale1 + vec2(time * 0.05, -time * 0.07);
+        vec2 p2 = uv * scale2 + vec2(-time * 0.06, time * 0.08);
+        
+        float pattern1 = fbm(p1 * 2.0 + fbm(p1 * 1.5));
+        float pattern2 = fbm(p2 * 1.5 - fbm(p2 * 2.0));
+        
+        // Create darker spots
+        float spots = smoothstep(0.4, 0.6, pattern1 * pattern2);
+        return 1.0 - (spots * 0.7); // Invert and adjust intensity
+    }
+    
     void main() {
-      vec2 uv = vUv;
-      
-      float n1 = fbm(uv * 4.0 + time * 0.15);
-      float n2 = fbm(uv * 8.0 - time * 0.1);
-      float n3 = fbm(uv * 12.0 + time * 0.12);
-      
-      float finalNoise = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * 2.0;
-      finalNoise = pow(finalNoise * 0.5 + 0.5, 1.4);
-      
-      vec3 color1 = vec3(0.7, 0.15, 0.01);
-      vec3 color2 = vec3(0.9, 0.4, 0.05);
-      vec3 color3 = vec3(0.8, 0.3, 0.02);
-      vec3 color4 = vec3(1.0, 0.7, 0.2);
-      vec3 color5 = vec3(1.0, 0.85, 0.3);
-      
-      vec3 finalColor = mix(color1, color2, finalNoise);
-      finalColor = mix(finalColor, color3, fbm(uv * 6.0 + time * 0.15));
-      
-      float allHotSpots = createMultipleHotSpots(uv, time);
-      
-      float timeVariation = sin(time * 1.0) * 0.5 + 0.5;
-      allHotSpots *= mix(0.7, 1.3, timeVariation);
-      
-      finalColor = mix(finalColor, color4, allHotSpots);
-      
-      float brightCenters = pow(allHotSpots, 1.5) * (sin(time * 1.5) * 0.3 + 0.7);
-      finalColor = mix(finalColor, color5, brightCenters);
-      
-      float flicker = fbm(uv * 20.0 + time * 0.7) * allHotSpots;
-      finalColor += color5 * flicker * 0.2;
-      
-      float edge = smoothstep(0.5, 0.35, length(uv - 0.5));
-      finalColor *= edge * 0.7 + 0.3;
-      
-      float pulse = sin(time * 1.0) * 0.05 + 0.95;
-      finalColor *= pulse;
-      
-      float brightness = fbm(uv * 2.0 + time * 0.05) * 0.15 + 0.85;
-      finalColor *= brightness;
-      
-      gl_FragColor = vec4(finalColor, 1.0);
+        vec2 uv = vUv;
+        
+        // Base plasma patterns
+        float n1 = fbm(uv * 4.0 + time * 0.15);
+        float n2 = fbm(uv * 8.0 - time * 0.1);
+        float n3 = fbm(uv * 12.0 + time * 0.12);
+        
+        // Sunspot pattern
+        float sunspots = createSunspotPattern(uv, time);
+        
+        // Enhanced color palette to match the image
+        vec3 baseColor = vec3(1.0, 0.6, 0.1);      // Bright orange
+        vec3 darkSpotColor = vec3(0.4, 0.1, 0.0);  // Dark red-brown
+        vec3 brightSpotColor = vec3(1.0, 0.9, 0.5); // Bright yellow-white
+        vec3 coronaColor = vec3(1.0, 0.3, 0.0);    // Deep orange for the edge
+        
+        // Create the base surface
+        float surfacePattern = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2);
+        surfacePattern = pow(surfacePattern, 1.2);
+        
+        // Blend with sunspots
+        vec3 finalColor = mix(darkSpotColor, baseColor, sunspots);
+        
+        // Add bright regions
+        float brightPattern = fbm(uv * 6.0 + time * 0.2);
+        brightPattern = pow(brightPattern, 2.0);
+        finalColor = mix(finalColor, brightSpotColor, brightPattern * 0.5);
+        
+        // Add dynamic hot spots
+        float hotSpots = createMultipleHotSpots(uv, time);
+        finalColor = mix(finalColor, brightSpotColor, hotSpots * 0.6);
+        
+        // Enhanced edge glow
+        float dist = length(uv - 0.5);
+        float edgeGlow = smoothstep(0.48, 0.5, dist) * smoothstep(0.5, 0.48, dist);
+        finalColor = mix(finalColor, coronaColor, edgeGlow);
+        
+        // Add pulsing brightness variation
+        float pulse = sin(time * 0.5) * 0.1 + 0.9;
+        finalColor *= pulse;
+        
+        // Add subtle flickering
+        float flicker = fbm(uv * 20.0 + time * 0.7);
+        finalColor *= (1.0 + flicker * 0.1);
+        
+        // Edge fadeout
+        float edge = smoothstep(0.5, 0.35, dist);
+        finalColor *= edge;
+        
+        gl_FragColor = vec4(finalColor, 1.0);
     }
   `;
 
@@ -452,25 +505,49 @@ onMounted(() => {
       const glowGeometry = new THREE.CircleGeometry(size * scale, 128);
       const glowMaterial = new THREE.ShaderMaterial({
         vertexShader: glowVertexShader,
-        fragmentShader: glowFragmentShader,
+        fragmentShader: `
+          varying vec2 vUv;
+          uniform vec3 color;
+          uniform float intensity;
+          uniform float time;
+          
+          void main() {
+            vec2 uv = vUv;
+            float dist = length(uv - 0.5);
+            
+            // Create dynamic glow pattern
+            float glow = smoothstep(0.5, 0.0, dist);
+            
+            // Add pulsing effect
+            float pulse = sin(time * 0.5) * 0.1 + 0.9;
+            
+            // Add corona-like rays
+            float angle = atan(uv.y - 0.5, uv.x - 0.5);
+            float rays = abs(sin(angle * 8.0 + time)) * 0.2;
+            
+            float alpha = (glow + rays) * intensity * pulse;
+            gl_FragColor = vec4(color, alpha);
+          }
+        `,
         uniforms: {
           color: { value: color },
-          intensity: { value: intensity }
+          intensity: { value: intensity },
+          time: { value: 0 }
         },
         transparent: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false
       });
+      
       return new THREE.Mesh(glowGeometry, glowMaterial);
     };
 
     // Add multiple glow layers with different sizes and intensities
     const glowLayers = [
-      { scale: 1.2, color: new THREE.Color(0xff3300), intensity: 0.8 },  // Orange-red
-      { scale: 1.6, color: new THREE.Color(0xff4400), intensity: 0.6 },  // Lighter orange
-      { scale: 2.0, color: new THREE.Color(0xff5500), intensity: 0.4 },  // Even lighter
-      { scale: 2.5, color: new THREE.Color(0xff6600), intensity: 0.2 },  // Faint outer glow
-      { scale: 3.0, color: new THREE.Color(0xff7700), intensity: 0.1 }   // Very faint edge
+      { scale: 1.1, color: new THREE.Color(0xff5500), intensity: 0.8 }, // Inner orange
+      { scale: 1.2, color: new THREE.Color(0xff3300), intensity: 0.6 }, // Mid orange-red
+      { scale: 1.4, color: new THREE.Color(0xff2200), intensity: 0.4 }, // Outer red
+      { scale: 1.6, color: new THREE.Color(0xff1100), intensity: 0.2 }  // Faint outer glow
     ].map(({ scale, color, intensity }) => 
       createGlowLayer(scale, color, intensity)
     );
@@ -681,10 +758,17 @@ onMounted(() => {
     requestAnimationFrame(animate);
     const time = performance.now() * 0.001;
     
-    // Update plasma effect
+    // Update plasma shader time
     if (sun?.material instanceof THREE.ShaderMaterial) {
-      sun.material.uniforms.time.value = time * 0.5; // Slowed down for better effect
+        sun.material.uniforms.time.value = time;
     }
+    
+    // Update glow layer time uniforms
+    sun.children.forEach((layer) => {
+        if (layer.material instanceof THREE.ShaderMaterial) {
+            layer.material.uniforms.time.value = time;
+        }
+    });
     
     renderer.render(scene, camera);
   };
